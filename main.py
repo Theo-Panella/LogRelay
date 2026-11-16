@@ -1,12 +1,20 @@
-from fastapi import FastAPI,  status
+from fastapi import FastAPI,  status, Request
+from fastapi.security import APIKeyHeader
 from datetime import datetime, timezone 
 from pydantic import BaseModel
 import requests
+from dotenv import load_dotenv
+import os
+import hashlib
 
 app = FastAPI()
+load_dotenv()
+secret_key = os.getenv("SECRET_KEY")
+api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 class log_recebido(BaseModel):
     batch: dict[str, list[str]]
+#    token: str
 
 class log_padronizado(BaseModel):
     #TimeStamp_API : str
@@ -23,6 +31,7 @@ Nome_pattern: 'teste-2'
 
 @app.post("/",response_model=list[log_padronizado])
 def recebe_log(log: log_recebido):
+    hash_api_key = hashlib.sha256(secret_key.encode("utf-8")).hexdigest()
     resultado = [] 
 
     try:
