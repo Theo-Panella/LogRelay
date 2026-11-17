@@ -1,0 +1,14 @@
+services:
+  web:
+    build: .
+    container_name: web
+    networks:
+      - public
+    ports:
+      - "8000:8000"
+    command: fastapi dev app/main.py --host 0.0.0.0 --port 8000
+
+networks:
+  public:
+    driver: bridge
+
