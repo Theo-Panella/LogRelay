@@ -54,4 +54,7 @@ Isso conecta ambos os containers à mesma rede Docker chamada `public`, permitin
 - `GET /` - Verifica status da API
 
 ## TODO
-- [ ] Autenticação de requisição por comparação de Hash, usar já hasheado e comparar com a da header
+- [x] Autenticação de requisição por comparação de chave API
+- [ ] Usar TLS na comunicação
+- [ ] Usar HMAC como verificador de autenticidade
+- [ ] Implementar JWT

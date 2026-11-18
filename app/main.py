@@ -1,4 +1,4 @@
-from fastapi import FastAPI,  status, Request
+from fastapi import FastAPI,  status, HTTPException, Depends, Security
 from fastapi.security import APIKeyHeader
 from datetime import datetime, timezone 
 from pydantic import BaseModel
@@ -6,6 +6,7 @@ import requests
 from dotenv import load_dotenv
 import os
 import hashlib
+import secrets
 
 app = FastAPI()
 load_dotenv()
@@ -14,7 +15,6 @@ api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 
 class log_recebido(BaseModel):
     batch: dict[str, list[str]]
-#    token: str
 
 class log_padronizado(BaseModel):
     #TimeStamp_API : str
@@ -29,9 +29,16 @@ Serviço:      'Apache'
 Nome_pattern: 'teste-2'
 """
 
+async def verify_auth(key: str = Security(api_key_header)) -> str:
+    if not key or not secrets.compare_digest(key, secret_key):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing API Key",
+        )
+    return key
+
 @app.post("/",response_model=list[log_padronizado])
-def recebe_log(log: log_recebido):
-    hash_api_key = hashlib.sha256(secret_key.encode("utf-8")).hexdigest()
+async def recebe_log(log: log_recebido, api_key: str = Depends(verify_auth)):
     resultado = [] 
 
     try:
@@ -46,6 +53,7 @@ def recebe_log(log: log_recebido):
             resultado.append(padronizado)
 
         print(resultado)
+        print(api_key_header)
         return resultado
 
     except Exception as error:
