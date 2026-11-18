@@ -58,3 +58,13 @@ Isso conecta ambos os containers à mesma rede Docker chamada `public`, permitin
 - [ ] Usar TLS na comunicação
 - [ ] Usar HMAC como verificador de autenticidade
 - [ ] Implementar JWT
+- [ ] Adicionar verificação de time stamp as requisições
+- [ ] Corrigir HMAC no teste.py: importar `hmac`, assinar bytes (`secret_key.encode()` e `json.dumps(payload).encode()`) e enviar o mesmo body com `data=`
+- [ ] Corrigir HMAC no main.py: calcular a assinatura sobre o corpo bruto (`await request.body()`) com a chave em bytes
+- [ ] Ler o header `Signature` via `Security(api_assinatura_header)` em vez de comparar com o objeto `APIKeyHeader`
+- [ ] Remover o `try/except Exception` genérico do `POST /` (engole o 403 e retorna 500)
+- [ ] Falhar na inicialização se `SECRET_KEY` não estiver definida
+- [ ] Adicionar `TimeStamp_API` ao modelo `log_padronizado` (hoje é descartado pelo `response_model`)
+- [ ] Validar o formato do batch (3 campos) para evitar `IndexError`
+- [ ] Parar de enviar a chave no header `Authorization` quando o HMAC estiver funcionando
+- [ ] Limpeza: `hashlib` duplicado, `requests` sem uso e `print(api_key_header)` no main.py; corrigir `load_dotenv` no credencial.py
