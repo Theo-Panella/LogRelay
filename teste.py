@@ -3,12 +3,17 @@ import os
 from dotenv import load_dotenv
 import hashlib
 import hmac
+import base64
+import json
 
 load_dotenv()
 secret_key = os.getenv("SECRET_KEY")
 
-payload = {"batch": {'0': ['[Mon Dec 05 16:40:06 2005] [notice] workerEnv.init() ok /etc/httpd/conf/workers2.properties', 'Apache', 'teste-2']}}
-assinatura = hmac.new(secret_key, payload, hashlib.sha256).hexdigest()
+payload = {'0': ['[Mon Dec 05 16:40:06 2005] [notice] workerEnv.init() ok /etc/httpd/conf/workers2.properties', 'Apache', 'teste-2']}
+
+payload_utf8, secret_key_utf8 =  json.dumps(payload).encode("utf8"), secret_key.encode("utf8")
+
+assinatura = hmac.new(secret_key_utf8, payload_utf8, hashlib.sha256).hexdigest()
 
 headers = {
     "Authorization": secret_key,
@@ -18,3 +23,7 @@ headers = {
 response = requests.post("http://localhost:8000", json=payload, headers=headers)
 
 print(response.status_code)
+print(f"assinatura: {assinatura}")
+print(f"Payload encoded: {payload_utf8} ")
+print(type(payload))
+print(f"secret key encoded: {secret_key_utf8}")
