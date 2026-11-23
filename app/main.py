@@ -1,28 +1,30 @@
-from fastapi import FastAPI,  status, HTTPException, Depends, Security, Header
+from fastapi import FastAPI,  status, HTTPException, Depends, Security, Header, Request
 from fastapi.security import APIKeyHeader
 from datetime import datetime, timezone 
 from pydantic import BaseModel
-import requests
 from dotenv import load_dotenv
 import os
 import hashlib
-import secrets
-import hashlib
 import hmac
-import base64
-import json
+
+load_dotenv() 
+
+if not os.getenv("SECRET_KEY"):
+    print("=="*10)
+    print("Impossivel subir a API, verifique a secret key no .env e tente novamente")
+    print("=="*10)
+    raise SystemExit()
 
 app = FastAPI()
-load_dotenv()
 secret_key = os.getenv("SECRET_KEY")
 api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 api_assinatura_header = APIKeyHeader(name="Signature", auto_error=False)
 
 class log_recebido(BaseModel):
-    batch: [list[str]]
+    batch: dict[str, list[str]]
 
 class log_padronizado(BaseModel):
-    #TimeStamp_API : str
+    TimeStamp_API : str
     raw_log: str
     servico: str
     nome_pattern: str
@@ -34,57 +36,46 @@ Serviço:      'Apache'
 Nome_pattern: 'teste-2'
 """
 
-async def verify_auth(key: str = Security(api_key_header)) -> str:
-    if not key or not secrets.compare_digest(key, secret_key):
+async def verify_auth(request: Request, assinatura_header: str = Security(api_assinatura_header)) -> None:
+    if not assinatura_header:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing API Key",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Assinatura HMAC vazia",
         )
-    return key
+    corpo_bruto = await request.body()
+    assinatura_esperada = hmac.new(secret_key.encode("utf-8"), corpo_bruto, hashlib.sha256).hexdigest()
 
-def encode_utf8(value):
-    if type(value) is dict:
-        value_dump = json.dumps(value)
-        value_utf8_encoded = value_dump.encode("utf-8")
-        return value_utf8_encoded
-    
-    value_utf8_encoded = value.encode("utf-8")
-    return value_utf8_encoded
+    if not hmac.compare_digest(assinatura_esperada,assinatura_header):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Assinatura HMAC inválida"
+        )
 
-def decode_utf8(value):
-    value_utf8_decoded   = value_base64_decoded.decode("utf-8")
-    return value_utf8_decoded
+async def integridade_batch(log: log_recebido):
+    for campo in log.batch:
+        if len(log.batch[campo]) != 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Campos insuficientes"
+            )
+    return "ok"
 
-@app.post("/",response_model=list[log_padronizado])
-async def recebe_log(log: log_recebido, api_key: str = Depends(verify_auth), assinatura_header: str = Depends(api_assinatura_header)): #:
+@app.post("/",response_model=list[log_padronizado], dependencies=[Depends(verify_auth)])
+async def recebe_log(log: log_recebido, ib: str = Depends(integridade_batch)):
     resultado = [] 
-    print(log)
-    #print(encode_utf8(log.batch))
-
     try:
-        assinatura = hmac.new(encode_utf8(secret_key), encode_utf8(log.batch), hashlib.sha256).hexdigest()
-        print(assinatura_header)
-        print(assinatura)
-        if hmac.compare_digest(assinatura,api_assinatura_header):
-            timestamp_atual = datetime.now(timezone.utc).isoformat()
-            for post_batch in log.batch:
-                padronizado = {
-                    "TimeStamp_API": timestamp_atual,
-                    "raw_log": log.batch[post_batch][0],
-                    "servico": log.batch[post_batch][1],
-                    "nome_pattern": log.batch[post_batch][2]
-                }
-                resultado.append(padronizado)
-
-            print(resultado)
-            print(api_key_header)
-            return resultado
-        else:
-            print("a")
-            #raise HTTPException(
-            #status_code=status.HTTP_403_FORBIDDEN,
-            #detail="Invalid or missing HMAC authentication",
-            #)
+        timestamp_atual = datetime.now(timezone.utc).isoformat()
+        for post_batch in log.batch:
+            padronizado = {
+                "TimeStamp_API": timestamp_atual,
+                "raw_log": log.batch[post_batch][0],
+                "servico": log.batch[post_batch][1],
+                "nome_pattern": log.batch[post_batch][2]
+            }
+            resultado.append(padronizado)
+        print(resultado)
+        print(api_key_header)
+        return resultado
 
     except Exception as error:
         print(f"Erro: {error}")
