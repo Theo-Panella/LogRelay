@@ -1,6 +1,6 @@
 from fastapi import FastAPI,  status, HTTPException, Depends, Security, Header, Request
 from fastapi.security import APIKeyHeader
-from datetime import datetime, timezone 
+from datetime import datetime, timezone
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import os
@@ -17,7 +17,6 @@ if not os.getenv("SECRET_KEY"):
 
 app = FastAPI()
 secret_key = os.getenv("SECRET_KEY")
-api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 api_assinatura_header = APIKeyHeader(name="Signature", auto_error=False)
 
 class log_recebido(BaseModel):
@@ -74,7 +73,6 @@ async def recebe_log(log: log_recebido, ib: str = Depends(integridade_batch)):
             }
             resultado.append(padronizado)
         print(resultado)
-        print(api_key_header)
         return resultado
 
     except Exception as error:
