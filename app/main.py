@@ -1,26 +1,30 @@
-from fastapi import FastAPI,  status, HTTPException, Depends, Security
+from fastapi import FastAPI,  status, HTTPException, Depends, Security, Header, Request
 from fastapi.security import APIKeyHeader
-from datetime import datetime, timezone 
+from datetime import datetime, timezone
 from pydantic import BaseModel
-import requests
 from dotenv import load_dotenv
 import os
 import hashlib
-import secrets
-import hashlib
 import hmac
 
+load_dotenv() 
+
+if not os.getenv("SECRET_KEY"):
+    print("=="*10)
+    print("Impossivel subir a API, verifique a secret key no .env e tente novamente")
+    print("=="*10)
+    raise SystemExit()
+
 app = FastAPI()
-load_dotenv()
 secret_key = os.getenv("SECRET_KEY")
-api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
 api_assinatura_header = APIKeyHeader(name="Signature", auto_error=False)
+time_stamp_received = APIKeyHeader(name="TimeStamp", auto_error=False)
 
 class log_recebido(BaseModel):
     batch: dict[str, list[str]]
 
 class log_padronizado(BaseModel):
-    #TimeStamp_API : str
+    TimeStamp_API : str
     raw_log: str
     servico: str
     nome_pattern: str
@@ -32,39 +36,55 @@ Serviço:      'Apache'
 Nome_pattern: 'teste-2'
 """
 
-async def verify_auth(key: str = Security(api_key_header)) -> str:
-    if not key or not secrets.compare_digest(key, secret_key):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing API Key",
-        )
-    return key
-
-@app.post("/",response_model=list[log_padronizado])
-async def recebe_log(log: log_recebido, api_key: str = Depends(verify_auth)):
-    resultado = [] 
-
+async def verify_auth(request: Request, assinatura_header: str = Security(api_assinatura_header), time_stamp: str = Security(time_stamp_received)) -> None:
     try:
-        assinatura = hmac.new(secret_key, log, hashlib.sha256).hexdigest()
-        if hmac.compare_digest(assinatura,api_assinatura_header):
-            timestamp_atual = datetime.now(timezone.utc).isoformat()
-            for post_batch in log.batch:
-                padronizado = {
-                    "TimeStamp_API": timestamp_atual,
-                    "raw_log": log.batch[post_batch][0],
-                    "servico": log.batch[post_batch][1],
-                    "nome_pattern": log.batch[post_batch][2]
-                }
-                resultado.append(padronizado)
-
-            print(resultado)
-            print(api_key_header)
-            return resultado
-        else:
+        if not time_stamp or abs(datetime.now(timezone.utc) - datetime.fromisoformat(time_stamp)).total_seconds() >= 300:
             raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid or missing HMAC authentication",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Requisição muito antiga",
             )
+    except (ValueError, TypeError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="TimeStamp inválido")
+
+    if not assinatura_header:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Assinatura HMAC vazia",
+        )
+    corpo_bruto = await request.body()
+    assinatura_esperada = hmac.new(secret_key.encode("utf-8"), (corpo_bruto + time_stamp.encode("utf8")), hashlib.sha256).hexdigest()
+
+    if not hmac.compare_digest(assinatura_esperada,assinatura_header):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Assinatura HMAC inválida"
+        )
+
+
+async def integridade_batch(log: log_recebido):
+    for campo in log.batch:
+        if len(log.batch[campo]) != 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail="Campos insuficientes"
+            )
+    return "ok"
+
+@app.post("/",response_model=list[log_padronizado], dependencies=[Depends(verify_auth)])
+async def recebe_log(log: log_recebido, ib: str = Depends(integridade_batch)):
+    resultado = [] 
+    try:
+        timestamp_atual = datetime.now(timezone.utc).isoformat()
+        for post_batch in log.batch:
+            padronizado = {
+                "TimeStamp_API": timestamp_atual,
+                "raw_log": log.batch[post_batch][0],
+                "servico": log.batch[post_batch][1],
+                "nome_pattern": log.batch[post_batch][2]
+            }
+            resultado.append(padronizado)
+        print(resultado)
+        return resultado
 
     except Exception as error:
         print(f"Erro: {error}")
