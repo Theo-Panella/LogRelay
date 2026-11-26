@@ -18,6 +18,7 @@ if not os.getenv("SECRET_KEY"):
 app = FastAPI()
 secret_key = os.getenv("SECRET_KEY")
 api_assinatura_header = APIKeyHeader(name="Signature", auto_error=False)
+time_stamp_received = APIKeyHeader(name="TimeStamp", auto_error=False)
 
 class log_recebido(BaseModel):
     batch: dict[str, list[str]]
@@ -35,20 +36,30 @@ Serviço:      'Apache'
 Nome_pattern: 'teste-2'
 """
 
-async def verify_auth(request: Request, assinatura_header: str = Security(api_assinatura_header)) -> None:
+async def verify_auth(request: Request, assinatura_header: str = Security(api_assinatura_header), time_stamp: str = Security(time_stamp_received)) -> None:
+    try:
+        if not time_stamp or abs(datetime.now(timezone.utc) - datetime.fromisoformat(time_stamp)).total_seconds() >= 300:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Requisição muito antiga",
+            )
+    except (ValueError, TypeError):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="TimeStamp inválido")
+
     if not assinatura_header:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Assinatura HMAC vazia",
         )
     corpo_bruto = await request.body()
-    assinatura_esperada = hmac.new(secret_key.encode("utf-8"), corpo_bruto, hashlib.sha256).hexdigest()
+    assinatura_esperada = hmac.new(secret_key.encode("utf-8"), (corpo_bruto + time_stamp.encode("utf8")), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(assinatura_esperada,assinatura_header):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Assinatura HMAC inválida"
         )
+
 
 async def integridade_batch(log: log_recebido):
     for campo in log.batch:

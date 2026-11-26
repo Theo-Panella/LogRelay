@@ -53,8 +53,34 @@ Isso conecta ambos os containers à mesma rede Docker chamada `public`, permitin
 - `POST /` - Recebe logs em lote
 - `GET /` - Verifica status da API
 
+## Segurança
+
+### Autenticação das requisições
+
+O `POST /` exige dois headers:
+
+- `TimeStamp`: data e hora do envio em ISO 8601 **com fuso horário** (ex.: `datetime.now(timezone.utc).isoformat()`)
+- `Signature`: HMAC-SHA256, em hexadecimal, calculado com a `SECRET_KEY` sobre `corpo_bruto + TimeStamp` (ambos em UTF-8)
+
+A requisição é recusada com `401` se algum header faltar, se o `TimeStamp` for inválido ou não tiver fuso horário, se ele estiver a 5 minutos ou mais do relógio do servidor (para trás ou para frente), ou se a assinatura não bater. Veja `teste.py` para um exemplo de cliente.
+
+### TLS
+
+A API fala **HTTP puro**, sem TLS. Criptografar o tráfego é responsabilidade de quem faz o deploy: coloque a API atrás de um proxy reverso com HTTPS (nginx, Caddy, Traefik etc.) ou rode o uvicorn com `--ssl-keyfile` e `--ssl-certfile`. Sem TLS, qualquer um na rede consegue ler os logs enviados.
+
+### Limites do HMAC
+
+O HMAC garante que a requisição veio de alguém que conhece a `SECRET_KEY` e que o corpo e o `TimeStamp` não foram alterados. Ele **não** garante:
+
+- **Confidencialidade:** o corpo continua legível na rede. Para isso, use TLS.
+- **Identificação de cada cliente:** todos os clientes usam a mesma chave. Não dá para saber qual deles enviou a requisição, nem revogar o acesso de um só. Se a chave vazar, ela precisa ser trocada em todos.
+- **Proteção contra replay:** uma requisição capturada pode ser reenviada até a janela de 5 minutos expirar (ver TODO).
+- **Proteção do resto da requisição:** só o corpo e o `TimeStamp` entram na assinatura. Método, caminho e os demais headers não são assinados.
+
+Os relógios do cliente e do servidor também precisam estar sincronizados (NTP). Uma diferença de 5 minutos ou mais faz todas as requisições serem recusadas.
+
 ## TODO
-- [ ] Usar TLS na comunicação
+- [ ] Bloquear replay dentro da janela de 5 minutos (guardar as assinaturas já usadas até expirarem e recusar as repetidas)
 - [x] Usar HMAC como verificador de autenticidade
 - [ ] Implementar JWT
 - [x] Corrigir HMAC no teste.py: importar `hmac` e assinar bytes (`secret_key.encode()` e `json.dumps(payload).encode()`)
